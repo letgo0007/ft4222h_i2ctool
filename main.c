@@ -406,12 +406,12 @@ static int testFT4222(void)
     return retCode;
 }
 
-int main(void)
+int main(int argc, char *args[])
 {
     int num, locid;
     I2cMaster_detectI2cInterface(&num, &locid);
     i2cm_init();
-
+    i2cm_processCommand(argc-1, ++args);
     return testFT4222();
 }
 

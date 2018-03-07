@@ -12,8 +12,8 @@ typedef enum e_I2cOpType
     POLLACK = 0,
     WRITE   = 1,
     READ    = 2,
-    WWRITE  = 3,
-    WREAD   = 4,
+    REG_WRITE  = 3,
+    REG_READ   = 4,
     SCAN    = 5,
 
     //Device specific operation type.
@@ -42,5 +42,6 @@ int I2cMaster_wwrite(st_I2cOps *op);
 int I2cMaster_wread(st_I2cOps *op);
 
 int i2cm_init();
+int i2cm_processCommand(int argc, char *args[]);
 
 #endif /*I2CM_H*/

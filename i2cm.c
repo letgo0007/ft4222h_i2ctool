@@ -91,8 +91,8 @@ int I2cMaster_detectI2cInterface(int *numOfDev, int *locationid)
         // Mode1 & Mode2 are not I2C mode.
         if (ftDevInfo[i].Type == FT_DEVICE_4222H_1_2)
         {
-            printf("%10s\t%4d\t%10x\t%10s\t%s\n", "NO-I2C", ftDevInfo[i].Type, ftDevInfo[i].LocId,
-                    ftDevInfo[i].SerialNumber, ftDevInfo[i].Description);
+            printf("%10s\t%4d\t%10x\t%10s\t%s\n", "NO-I2C", ftDevInfo[i].Type, ftDevInfo[i].LocId, ftDevInfo[i].SerialNumber,
+                    ftDevInfo[i].Description);
         }
     }
     printf("[%d]I2C interface detected.\n", ftI2cIfAmount);
@@ -115,6 +115,87 @@ int i2cm_init()
 
     CHECK_FUNC_EXIT(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
 
-    exit:
-    return 0;
+    exit: return 0;
+}
+
+/* Command Syntax:
+ * i2c write 		[slv_addr] [data0] 	[data1] ... [dataN]
+ * i2c read  		[slv_addr] [read_length]
+ * i2c reg_write 	[slv_addr] [reg_addr] [reg_size]	 [data0] [data1] ... [data N]
+ * i2c reg_read		[slv_addr] [reg_addr] [reg_size]	 [read_length]
+ * i2c get_ack		[slv_addr]
+ * i2c scan
+ */
+int i2cm_processCommand(int argc, char *args[])
+{
+
+    const char *s = NULL;
+    int8_t *command = args[0];
+    uint8_t slv_addr = 0;
+    uint8_t data[256] =
+    { 0 };
+    uint32_t reg_addr = 0;
+    uint8_t reg_size = 0;
+    int i;
+    int count;
+    uint8_t status;
+
+    printf("Command: [%d] %s %s %s %s %s\n", argc, args[0], args[1], args[2], args[3], args[4]);
+    if (strcmp(command, "write") == 0)
+    {
+        slv_addr = strtol(args[1], (char **) &s, 0);
+
+        for (i = 0; i < argc - 2; i++)
+        {
+            data[i] = strtol(args[i + 2], (char **) &s, 0);
+        }
+
+        printf("slv_addr[%d] %d %d %d %d\n", slv_addr, data[0], data[1], data[2], data[3]);
+        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_ReadEx(gFtHandle, slv_addr, START_AND_STOP, data, argc - 2, &count));
+        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+    }
+    exit: return 0;
+}
+
+int i2cm_processOp(st_I2cOps op)
+{
+    uint8_t status;
+    uint16_t transfered_count;
+
+    //Init I2C if not initialized.
+    if (gFtHandle == NULL)
+    {
+        i2cm_init();
+    }
+
+    //Do operation
+    switch (op.Operation)
+    {
+    case WRITE:
+    {
+        CHECK_FUNC_EXIT(gFtStatus,
+                FT4222_I2CMaster_WriteEx(gFtHandle, op.SlaveAdd, START_AND_STOP, op.WritePtr, op.WriteLen, &transfered_count));
+        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+        break;
+    }
+    case READ:
+    {
+        break;
+    }
+    case REG_WRITE:
+    {
+        break;
+    }
+    case REG_READ:
+    {
+        break;
+    }
+    default:
+    {
+        printf("Not supported operation");
+        return 0;
+    }
+    }
+
+    exit: return gFtStatus;
 }
