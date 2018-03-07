@@ -2,3 +2,6 @@
 *.DS_Store
 *.o
 *.d
+.cproject
+.project
+.settings/language.settings.xml

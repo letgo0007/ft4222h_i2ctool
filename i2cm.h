@@ -41,4 +41,6 @@ int I2cMaster_read(st_I2cOps *op);
 int I2cMaster_wwrite(st_I2cOps *op);
 int I2cMaster_wread(st_I2cOps *op);
 
+int i2cm_init();
+
 #endif /*I2CM_H*/
