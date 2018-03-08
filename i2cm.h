@@ -41,10 +41,11 @@ typedef struct st_I2cOps
 
 } st_I2cOps;
 
-int I2cMaster_detectI2cInterface(int *numOfDev, int *LocId);
+int i2cm_detect(int *numOfDev, int LocId[]);
 int I2cMaster_creatI2cHandleByLocId(int LocId);
 
-int i2cm_init();
+int i2cm_init(int32 kbps);
+int i2cm_initByLocId(int32 kbps, int LocId);
 int i2cm_StringToArgs(char *string, char *args[]);
 int i2cm_ArgsPrase(st_I2cOps *op, int argc, char *args[]);
 int i2cm_processOp(st_I2cOps *op);

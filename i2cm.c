@@ -7,9 +7,10 @@
 #include "libft4222.h"
 #include "i2cm.h"
 
-//Call a function and check if return value == 0.
-//  1. Give a simple error message function/file/line.
-//  2. return with error.
+/*Call a function and check if return value == 0.
+ * 1. Give a simple error message function/file/line.
+ * 2. return with error code.
+ */
 #define CHECK_FUNC_RET(ret, func) \
     do {\
         ret = func;\
@@ -20,9 +21,10 @@
         }\
     } while (0)
 
-//Call a function and check if return value == 0.
-//  1. Give a simple error message function/file/line.
-//  2. goto exit label. The function must have a exit lable.
+/*Call a function and check if return value == 0.
+ * 1. Give a simple error message function/file/line.
+ * 2. goto exit if error.
+ */
 #define CHECK_FUNC_EXIT(ret, func) \
     do {\
         ret = func;\
@@ -33,9 +35,13 @@
         }\
     } while (0)
 
+/***Internal Variables********************************************************/
+
 static FT_STATUS gFtStatus = 0;
 static FT_HANDLE gFtHandle = NULL;
+static uint32 gI2cKbps = 100;
 
+/***Internal Function Declaration*********************************************/
 int i2cm_write(st_I2cOps *op);
 int i2cm_read(st_I2cOps *op);
 int i2cm_reg_write(st_I2cOps *op);
@@ -43,8 +49,14 @@ int i2cm_reg_read(st_I2cOps *op);
 int i2cm_pollack(st_I2cOps *op);
 int i2cm_scan(st_I2cOps *op);
 
-//@brief Scan connected FT4222H deveice, return number of device & the USB location.
-int I2cMaster_detectI2cInterface(int *numOfDev, int *locationid)
+/***External Functions********************************************************/
+/*!@brief detect FTDI devices and return location ID for those are available to set to I2C mode.
+ *        Note that all the FTDT device will be show here (FT232R,etc)
+ * @param numOfDev      total number of I2C devices.
+ * @param locationid    Location ID of I2C devices, could be used by i2c_initByLocId()
+ * @return
+ */
+int i2cm_detect(int *numOfDev, int locationid[])
 {
     FT_STATUS ftStatus;
     FT_DEVICE_LIST_INFO_NODE *ftDevInfo = NULL;
@@ -114,27 +126,54 @@ int I2cMaster_detectI2cInterface(int *numOfDev, int *locationid)
     return retCode;
 }
 
-int i2cm_init()
+/*!@brief   Initial a FT4222H by description.
+ *          This is simple when you have only 1x FT422H device connected.
+ *
+ * @param   kbps    I2C frequency, unit in kHz.
+ * @return
+ */
+int i2cm_init(int32 kbps)
 {
     FT_STATUS ftStatus;
 
+    gI2cKbps = kbps;
     // Open a FT4222 device by DESCRIPTION
-    CHECK_FUNC_EXIT(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
-    CHECK_FUNC_EXIT(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
+    CHECK_FUNC_RET(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
+    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
 
-    exit: return 0;
+    return 0;
 }
 
+/*!@brief Inital a FT4222H I2C interface by location ID.
+ *
+ * @param kbps     I2C frequency, unit in kHz.
+ * @param LocId    Usb localtion ID. Get Localtion ID by using i2cm_detect.
+ * @return
+ */
+int i2cm_initByLocId(int32 kbps, int LocId)
+{
+    FT_STATUS ftStatus;
+
+    gI2cKbps = kbps;
+
+    CHECK_FUNC_RET(ftStatus, FT_OpenEx((PVOID) (uintptr_t) LocId, FT_OPEN_BY_LOCATION, &gFtHandle));
+    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
+
+    return 0;
+}
+
+/*!@brief   print I2c operation struct info.
+ * @param   op  :pointer to a I2c operation struct.
+ */
 void i2cm_printOp(st_I2cOps *op)
 {
     int i;
-    static char *optitle[10] =
-    {
-            "NoOperation","Write","Read","RegWrite","RegRead","PollAck","Scan"
-    };
+    static char *optitle[16] =
+    { "NoOperation", "Write", "Read", "RegWrite", "RegRead", "PollAck", "Scan" };
+
     printf("Operation:\t%s\n", optitle[op->Operation]);
     printf("SlvAddr:\t[0x%X]", op->SlaveAddr);
-    if(op->RegAddrLen)
+    if (op->RegAddrLen)
     {
         printf("\nRegLen:\t\t%d\nRegAddr:\t", op->RegAddrLen);
         for (i = 0; i < op->RegAddrLen; i++)
@@ -142,7 +181,7 @@ void i2cm_printOp(st_I2cOps *op)
             printf("[0x%X]\t", op->RegAddrBuf[i]);
         }
     }
-    if(op->TxLen)
+    if (op->TxLen)
     {
         printf("\nTxLen:\t\t%d\nTxData:\t\t", op->TxLen);
         for (i = 0; i < op->TxLen; i++)
@@ -150,7 +189,7 @@ void i2cm_printOp(st_I2cOps *op)
             printf("[0x%X]\t", op->TxBuf[i]);
         }
     }
-    if(op->RxLen)
+    if (op->RxLen)
     {
         printf("\nRxLen:\t\t%d\nRxData:\t\t", op->RxLen);
         for (i = 0; i < op->RxLen; i++)
@@ -160,6 +199,7 @@ void i2cm_printOp(st_I2cOps *op)
     }
     printf("\n");
 }
+
 /* Parse Command args into the Syntax:
  *      [arg0]      [arg1]      [arg2]      [arg3]      [arg4]
  * i2c  [write]     [slv_addr]  [data0]                             ... [dataN]
@@ -169,6 +209,15 @@ void i2cm_printOp(st_I2cOps *op)
  * i2c  [poll_ack]   [slv_addr]
  * i2c  [scan]
  *
+ */
+
+
+/*!@brief Prase arguments for a command line interface.
+ *
+ * @param op
+ * @param argc
+ * @param args
+ * @return
  */
 int i2cm_ArgsPrase(st_I2cOps *op, int argc, char *args[])
 {
@@ -285,10 +334,12 @@ int i2cm_reg_read(st_I2cOps *op)
 }
 int i2cm_pollack(st_I2cOps *op)
 {
+    printf("Fucntion not ready\n");
     return 0;
 }
 int i2cm_scan(st_I2cOps *op)
 {
+    printf("\nFucntion not ready\n");
     return 0;
 }
 
@@ -297,7 +348,7 @@ int i2cm_processOp(st_I2cOps *op)
     //Init I2C if not initialized.
     if (gFtHandle == NULL)
     {
-        i2cm_init();
+        i2cm_init(gI2cKbps);
     }
 
     //Do operation
