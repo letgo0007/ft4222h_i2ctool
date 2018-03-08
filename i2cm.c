@@ -15,7 +15,7 @@
         ret = func;\
         if (0 != ret)\
         {\
-            printf("\033[31mERROR: "#func" Return=[%d]! <%s:%d>\033[0m\n", ret, __FILE__, __LINE__);\
+            printf("\033[31mERROR: Return=[%d] "#func"<%s:%d>\033[0m\n", ret, __FILE__, __LINE__);\
             return ret;\
         }\
     } while (0)
@@ -28,13 +28,20 @@
         ret = func;\
         if (0 != ret)\
         {\
-            printf("\033[31mERROR: "#func" Return=[%d]! <%s:%d>\033[0m\n", ret, __FILE__, __LINE__);\
+            printf("\033[31mERROR: Return=[%d] "#func"<%s:%d>\033[0m\n", ret, __FILE__, __LINE__);\
             goto exit;\
         }\
     } while (0)
 
 static FT_STATUS gFtStatus = 0;
 static FT_HANDLE gFtHandle = NULL;
+
+int i2cm_write(st_I2cOps *op);
+int i2cm_read(st_I2cOps *op);
+int i2cm_reg_write(st_I2cOps *op);
+int i2cm_reg_read(st_I2cOps *op);
+int i2cm_pollack(st_I2cOps *op);
+int i2cm_scan(st_I2cOps *op);
 
 //@brief Scan connected FT4222H deveice, return number of device & the USB location.
 int I2cMaster_detectI2cInterface(int *numOfDev, int *locationid)
@@ -91,8 +98,8 @@ int I2cMaster_detectI2cInterface(int *numOfDev, int *locationid)
         // Mode1 & Mode2 are not I2C mode.
         if (ftDevInfo[i].Type == FT_DEVICE_4222H_1_2)
         {
-            printf("%10s\t%4d\t%10x\t%10s\t%s\n", "NO-I2C", ftDevInfo[i].Type, ftDevInfo[i].LocId, ftDevInfo[i].SerialNumber,
-                    ftDevInfo[i].Description);
+            printf("%10s\t%4d\t%10x\t%10s\t%s\n", "NO-I2C", ftDevInfo[i].Type, ftDevInfo[i].LocId,
+                    ftDevInfo[i].SerialNumber, ftDevInfo[i].Description);
         }
     }
     printf("[%d]I2C interface detected.\n", ftI2cIfAmount);
@@ -112,56 +119,181 @@ int i2cm_init()
     FT_STATUS ftStatus;
 
     // Open a FT4222 device by DESCRIPTION
-
+    CHECK_FUNC_EXIT(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
     CHECK_FUNC_EXIT(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
 
     exit: return 0;
 }
 
-/* Command Syntax:
- * i2c write 		[slv_addr] [data0] 	[data1] ... [dataN]
- * i2c read  		[slv_addr] [read_length]
- * i2c reg_write 	[slv_addr] [reg_addr] [reg_size]	 [data0] [data1] ... [data N]
- * i2c reg_read		[slv_addr] [reg_addr] [reg_size]	 [read_length]
- * i2c get_ack		[slv_addr]
- * i2c scan
- */
-int i2cm_processCommand(int argc, char *args[])
+void i2cm_printOp(st_I2cOps *op)
 {
-
-    const char *s = NULL;
-    int8_t *command = args[0];
-    uint8_t slv_addr = 0;
-    uint8_t data[256] =
-    { 0 };
-    uint32_t reg_addr = 0;
-    uint8_t reg_size = 0;
     int i;
-    int count;
-    uint8_t status;
-
-    printf("Command: [%d] %s %s %s %s %s\n", argc, args[0], args[1], args[2], args[3], args[4]);
-    if (strcmp(command, "write") == 0)
+    static char *optitle[10] =
     {
-        slv_addr = strtol(args[1], (char **) &s, 0);
-
-        for (i = 0; i < argc - 2; i++)
+            "NoOperation","Write","Read","RegWrite","RegRead","PollAck","Scan"
+    };
+    printf("Operation:\t%s\n", optitle[op->Operation]);
+    printf("SlvAddr:\t[0x%X]", op->SlaveAddr);
+    if(op->RegAddrLen)
+    {
+        printf("\nRegLen:\t\t%d\nRegAddr:\t", op->RegAddrLen);
+        for (i = 0; i < op->RegAddrLen; i++)
         {
-            data[i] = strtol(args[i + 2], (char **) &s, 0);
+            printf("[0x%X]\t", op->RegAddrBuf[i]);
         }
-
-        printf("slv_addr[%d] %d %d %d %d\n", slv_addr, data[0], data[1], data[2], data[3]);
-        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_ReadEx(gFtHandle, slv_addr, START_AND_STOP, data, argc - 2, &count));
-        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
     }
-    exit: return 0;
+    if(op->TxLen)
+    {
+        printf("\nTxLen:\t\t%d\nTxData:\t\t", op->TxLen);
+        for (i = 0; i < op->TxLen; i++)
+        {
+            printf("[0x%X]\t", op->TxBuf[i]);
+        }
+    }
+    if(op->RxLen)
+    {
+        printf("\nRxLen:\t\t%d\nRxData:\t\t", op->RxLen);
+        for (i = 0; i < op->RxLen; i++)
+        {
+            printf("[0x%X]\t", op->RxBuf[i]);
+        }
+    }
+    printf("\n");
+}
+/* Parse Command args into the Syntax:
+ *      [arg0]      [arg1]      [arg2]      [arg3]      [arg4]
+ * i2c  [write]     [slv_addr]  [data0]                             ... [dataN]
+ * i2c  [read]      [slv_addr]  [read_len]
+ * i2c  [reg_write] [slv_addr]  [reg_addr]  [reg_size]  [data0]     ... [dataN]
+ * i2c  [reg_read]  [slv_addr]  [reg_addr]  [reg_size]  [read_len]
+ * i2c  [poll_ack]   [slv_addr]
+ * i2c  [scan]
+ *
+ */
+int i2cm_ArgsPrase(st_I2cOps *op, int argc, char *args[])
+{
+    int i = 0;
+    char *s = NULL;
+
+    if (strcmp("write", args[0]) == 0)
+    {
+        op->Operation = WRITE;
+        op->SlaveAddr = (uint8_t) strtol(args[1], &s, 0);
+        op->TxLen = argc - 2;
+        for (i = 0; i < op->TxLen; i++)
+        {
+            op->TxBuf[i] = (uint8_t) strtol(args[i + 2], &s, 0);
+        }
+    }
+    if (strcmp("read", args[0]) == 0)
+    {
+        op->Operation = READ;
+        op->SlaveAddr = (uint8_t) strtol(args[1], &s, 0);
+        op->RxLen = (uint8_t) strtol(args[2], &s, 0);
+    }
+    if (strcmp("reg_write", args[0]) == 0)
+    {
+        long regtemp = 0;
+        op->Operation = REG_WRITE;
+        op->SlaveAddr = (uint8_t) strtol(args[1], &s, 0);
+        regtemp = (uint32_t) strtol(args[2], &s, 0);
+        op->RegAddrLen = (uint8_t) strtol(args[3], &s, 0);
+        for (i = 0; i < op->RegAddrLen; i++)
+        {
+            op->RegAddrBuf[op->RegAddrLen - i - 1] = (uint8_t) (regtemp >> (8 * i));
+        }
+        op->TxLen = argc - 4;
+        for (i = 0; i < op->TxLen; i++)
+        {
+            op->TxBuf[i] = (uint8_t) strtol(args[i + 4], &s, 0);
+        }
+    }
+    if (strcmp("reg_read", args[0]) == 0)
+    {
+        long regtemp = 0;
+        op->Operation = REG_READ;
+        op->SlaveAddr = (uint8_t) strtol(args[1], &s, 0);
+        regtemp = (uint32_t) strtol(args[2], &s, 0);
+        op->RegAddrLen = (uint8_t) strtol(args[3], &s, 0);
+        for (i = 0; i < op->RegAddrLen; i++)
+        {
+            op->RegAddrBuf[op->RegAddrLen - i - 1] = (uint8_t) (regtemp >> (8 * i));
+        }
+        op->RxLen = (uint8_t) strtol(args[4], &s, 0);
+    }
+    if (strcmp("poll_ack", args[0]) == 0)
+    {
+        op->Operation = POLLACK;
+        op->SlaveAddr = (uint8_t) strtol(args[1], &s, 0);
+    }
+    if (strcmp("scan", args[0]) == 0)
+    {
+        op->Operation = SCAN;
+    }
+
+    i2cm_printOp(op);
+    return 0;
 }
 
-int i2cm_processOp(st_I2cOps op)
+int i2cm_write(st_I2cOps *op)
 {
-    uint8_t status;
-    uint16_t transfered_count;
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
 
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_read(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_reg_write(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START, op->RegAddrBuf, op->RegAddrLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_reg_read(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START, op->RegAddrBuf, op->RegAddrLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_pollack(st_I2cOps *op)
+{
+    return 0;
+}
+int i2cm_scan(st_I2cOps *op)
+{
+    return 0;
+}
+
+int i2cm_processOp(st_I2cOps *op)
+{
     //Init I2C if not initialized.
     if (gFtHandle == NULL)
     {
@@ -169,25 +301,26 @@ int i2cm_processOp(st_I2cOps op)
     }
 
     //Do operation
-    switch (op.Operation)
+    switch (op->Operation)
     {
     case WRITE:
     {
-        CHECK_FUNC_EXIT(gFtStatus,
-                FT4222_I2CMaster_WriteEx(gFtHandle, op.SlaveAdd, START_AND_STOP, op.WritePtr, op.WriteLen, &transfered_count));
-        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+        i2cm_write(op);
         break;
     }
     case READ:
     {
+        i2cm_read(op);
         break;
     }
     case REG_WRITE:
     {
+        i2cm_reg_write(op);
         break;
     }
     case REG_READ:
     {
+        i2cm_reg_read(op);
         break;
     }
     default:
@@ -197,5 +330,5 @@ int i2cm_processOp(st_I2cOps op)
     }
     }
 
-    exit: return gFtStatus;
+    return gFtStatus;
 }

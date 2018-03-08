@@ -408,10 +408,11 @@ static int testFT4222(void)
 
 int main(int argc, char *args[])
 {
-    int num, locid;
-    I2cMaster_detectI2cInterface(&num, &locid);
+    st_I2cOps op;
+    //I2cMaster_detectI2cInterface(&num, &locid);
     i2cm_init();
-    i2cm_processCommand(argc-1, ++args);
+    i2cm_ArgsPrase(&op, argc - 1, ++args);
+    i2cm_processOp(&op);
     return testFT4222();
 }
 
