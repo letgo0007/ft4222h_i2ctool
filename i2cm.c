@@ -47,7 +47,6 @@ int i2cm_read(st_I2cOps *op);
 int i2cm_reg_write(st_I2cOps *op);
 int i2cm_reg_read(st_I2cOps *op);
 int i2cm_pollack(st_I2cOps *op);
-int i2cm_scan(st_I2cOps *op);
 
 /***External Functions********************************************************/
 /*!@brief detect FTDI devices and return location ID for those are available to set to I2C mode.
@@ -116,50 +115,16 @@ int i2cm_detect(int *numOfDev, int locationid[])
     }
     printf("[%d]I2C interface detected.\n", ftI2cIfAmount);
 
-    exit: free(ftDevInfo);
+    exit:
     //Return I2c If number & LocationId
     *numOfDev = ftI2cIfAmount;
     for (i = 0; i < ftI2cIfAmount; i++)
     {
         locationid[i] = ftDevInfo[i].LocId;
     }
+    //Free buffer.
+    free(ftDevInfo);
     return retCode;
-}
-
-/*!@brief   Initial a FT4222H by description.
- *          This is simple when you have only 1x FT422H device connected.
- *
- * @param   kbps    I2C frequency, unit in kHz.
- * @return
- */
-int i2cm_init(int32 kbps)
-{
-    FT_STATUS ftStatus;
-
-    gI2cKbps = kbps;
-    // Open a FT4222 device by DESCRIPTION
-    CHECK_FUNC_RET(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
-    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
-
-    return 0;
-}
-
-/*!@brief Inital a FT4222H I2C interface by location ID.
- *
- * @param kbps     I2C frequency, unit in kHz.
- * @param LocId    Usb localtion ID. Get Localtion ID by using i2cm_detect.
- * @return
- */
-int i2cm_initByLocId(int32 kbps, int LocId)
-{
-    FT_STATUS ftStatus;
-
-    gI2cKbps = kbps;
-
-    CHECK_FUNC_RET(ftStatus, FT_OpenEx((PVOID) (uintptr_t) LocId, FT_OPEN_BY_LOCATION, &gFtHandle));
-    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
-
-    return 0;
 }
 
 /*!@brief   print I2c operation struct info.
@@ -211,6 +176,130 @@ void i2cm_printOp(st_I2cOps *op)
  *
  */
 
+int i2cm_write(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_read(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_reg_write(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START, op->RegAddrBuf, op->RegAddrLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_reg_read(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START, op->RegAddrBuf, op->RegAddrLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus,
+            FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
+    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+
+    return status;
+}
+int i2cm_pollack(st_I2cOps *op)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+
+    FT4222_I2CMaster_Write(gFtHandle, op->SlaveAddr, NULL, 0, &trans_count);
+    FT4222_I2CMaster_GetStatus(gFtHandle, &status);
+
+    return status;
+}
+
+int i2cm_scan(void)
+{
+    uint16 trans_count;    //Actual transfer count;
+    uint8 status;
+    uint8 i;
+
+    for (i = 0; i < 0x7F; i++)
+    {
+        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_Write(gFtHandle, i, NULL, 0, &trans_count));
+        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+        if (status == 0)
+        {
+            printf("I2C Slave found :[0x%x]\n", i * 2);
+        }
+        CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_Read(gFtHandle, i, NULL, 0, &trans_count));
+        CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+        if (status == 0)
+        {
+            printf("I2C Slave found :[0x%x]\n", i * 2 + 1);
+        }
+        exit: ;
+    }
+    return 0;
+}
+
+int i2cm_runOp(st_I2cOps *op)
+{
+    //Init I2C if not initialized.
+    if (gFtHandle == NULL)
+    {
+        i2cm_init(gI2cKbps);
+    }
+
+    //Do operation
+    switch (op->Operation)
+    {
+    case WRITE:
+    {
+        i2cm_write(op);
+        break;
+    }
+    case READ:
+    {
+        i2cm_read(op);
+        break;
+    }
+    case REG_WRITE:
+    {
+        i2cm_reg_write(op);
+        break;
+    }
+    case REG_READ:
+    {
+        i2cm_reg_read(op);
+        break;
+    }
+    default:
+    {
+        printf("Not supported operation");
+        return 0;
+    }
+    }
+
+    return gFtStatus;
+}
 
 /*!@brief Prase arguments for a command line interface.
  *
@@ -219,7 +308,7 @@ void i2cm_printOp(st_I2cOps *op)
  * @param args
  * @return
  */
-int i2cm_ArgsPrase(st_I2cOps *op, int argc, char *args[])
+int i2cm_praseArgs(st_I2cOps *op, int argc, char *args[])
 {
     int i = 0;
     char *s = NULL;
@@ -284,102 +373,38 @@ int i2cm_ArgsPrase(st_I2cOps *op, int argc, char *args[])
     return 0;
 }
 
-int i2cm_write(st_I2cOps *op)
+/*!@brief   Initial a FT4222H by description.
+ *          This is simple when you have only 1x FT422H device connected.
+ *
+ * @param   kbps    I2C frequency, unit in kHz.
+ * @return
+ */
+int i2cm_init(int32 kbps)
 {
-    uint16 trans_count;    //Actual transfer count;
-    uint8 status;
+    FT_STATUS ftStatus;
 
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+    gI2cKbps = kbps;
+    // Open a FT4222 device by DESCRIPTION
+    CHECK_FUNC_RET(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
+    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
 
-    return status;
-}
-int i2cm_read(st_I2cOps *op)
-{
-    uint16 trans_count;    //Actual transfer count;
-    uint8 status;
-
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
-
-    return status;
-}
-int i2cm_reg_write(st_I2cOps *op)
-{
-    uint16 trans_count;    //Actual transfer count;
-    uint8 status;
-
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START, op->RegAddrBuf, op->RegAddrLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
-
-    return status;
-}
-int i2cm_reg_read(st_I2cOps *op)
-{
-    uint16 trans_count;    //Actual transfer count;
-    uint8 status;
-
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START, op->RegAddrBuf, op->RegAddrLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
-
-    return status;
-}
-int i2cm_pollack(st_I2cOps *op)
-{
-    printf("Fucntion not ready\n");
-    return 0;
-}
-int i2cm_scan(st_I2cOps *op)
-{
-    printf("\nFucntion not ready\n");
     return 0;
 }
 
-int i2cm_processOp(st_I2cOps *op)
+/*!@brief Inital a FT4222H I2C interface by location ID.
+ *
+ * @param kbps     I2C frequency, unit in kHz.
+ * @param LocId    Usb localtion ID. Get Localtion ID by using i2cm_detect.
+ * @return
+ */
+int i2cm_initByLocId(int32 kbps, int LocId)
 {
-    //Init I2C if not initialized.
-    if (gFtHandle == NULL)
-    {
-        i2cm_init(gI2cKbps);
-    }
+    FT_STATUS ftStatus;
 
-    //Do operation
-    switch (op->Operation)
-    {
-    case WRITE:
-    {
-        i2cm_write(op);
-        break;
-    }
-    case READ:
-    {
-        i2cm_read(op);
-        break;
-    }
-    case REG_WRITE:
-    {
-        i2cm_reg_write(op);
-        break;
-    }
-    case REG_READ:
-    {
-        i2cm_reg_read(op);
-        break;
-    }
-    default:
-    {
-        printf("Not supported operation");
-        return 0;
-    }
-    }
+    gI2cKbps = kbps;
 
-    return gFtStatus;
+    CHECK_FUNC_RET(ftStatus, FT_OpenEx((PVOID) (uintptr_t) LocId, FT_OPEN_BY_LOCATION, &gFtHandle));
+    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
+
+    return 0;
 }

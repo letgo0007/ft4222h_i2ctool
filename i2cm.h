@@ -46,7 +46,8 @@ int I2cMaster_creatI2cHandleByLocId(int LocId);
 
 int i2cm_init(int32 kbps);
 int i2cm_initByLocId(int32 kbps, int LocId);
+int i2cm_scan(void);
 int i2cm_StringToArgs(char *string, char *args[]);
-int i2cm_ArgsPrase(st_I2cOps *op, int argc, char *args[]);
-int i2cm_processOp(st_I2cOps *op);
+int i2cm_praseArgs(st_I2cOps *op, int argc, char *args[]);
+int i2cm_runOp(st_I2cOps *op);
 #endif /*I2CM_H*/

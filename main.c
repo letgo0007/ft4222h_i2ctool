@@ -411,9 +411,10 @@ int main(int argc, char *args[])
     int num, locid[16];
     st_I2cOps op;
     i2cm_detect(&num, locid);
-    i2cm_init(400);
-    i2cm_ArgsPrase(&op, argc - 1, ++args);
-    i2cm_processOp(&op);
+    i2cm_init(100);
+    i2cm_scan();
+    i2cm_praseArgs(&op, argc - 1, ++args);
+    i2cm_runOp(&op);
     return testFT4222();
 }
 
