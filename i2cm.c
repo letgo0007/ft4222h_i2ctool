@@ -107,7 +107,7 @@ int i2cm_detect(int *numOfDev, int locationid[])
         }
 
         // Mode1 & Mode2 are not I2C mode.
-        if (ftDevInfo[i].Type == FT_DEVICE_4222H_1_2)
+        else //if (ftDevInfo[i].Type == FT_DEVICE_4222H_1_2)
         {
             printf("%10s\t%4d\t%10x\t%10s\t%s\n", "NO-I2C", ftDevInfo[i].Type, ftDevInfo[i].LocId,
                     ftDevInfo[i].SerialNumber, ftDevInfo[i].Description);
@@ -178,25 +178,46 @@ void i2cm_printOp(st_I2cOps *op)
 
 int i2cm_write(st_I2cOps *op)
 {
-    uint16 trans_count;    //Actual transfer count;
-    uint8 status;
+    uint16 trans_count = 0;    //Actual transfer count;
+    uint8 status = 0;
 
-    CHECK_FUNC_RET(gFtStatus,
-            FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+    CHECK_FUNC_EXIT(gFtStatus,
+    			FT4222_I2CMaster_WriteEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->TxBuf, op->TxLen, &trans_count));
+    CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+    printf("i2cm_write, transferd size = [%d], status = [0x%x]\n",trans_count,status);
 
-    return status;
+    return 0;
+    exit:
+
+	if (gFtHandle != (FT_HANDLE) NULL)
+    {
+        (void) FT4222_UnInitialize(gFtHandle);
+        (void) FT_Close(gFtHandle);
+    }
+
+    return 0;
 }
 int i2cm_read(st_I2cOps *op)
 {
     uint16 trans_count;    //Actual transfer count;
     uint8 status;
 
-    CHECK_FUNC_RET(gFtStatus,
+    CHECK_FUNC_EXIT(gFtStatus,
             FT4222_I2CMaster_ReadEx(gFtHandle, op->SlaveAddr, START_AND_STOP, op->RxBuf, op->RxLen, &trans_count));
-    CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+    CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
+    printf("i2cm_write, transferd size = [%d], status = [0x%x]\n",trans_count,status);
 
-    return status;
+    return 0;
+
+    exit:
+
+	if (gFtHandle != (FT_HANDLE) NULL)
+    {
+        (void) FT4222_UnInitialize(gFtHandle);
+        (void) FT_Close(gFtHandle);
+    }
+	return 0;
+
 }
 int i2cm_reg_write(st_I2cOps *op)
 {
@@ -240,16 +261,20 @@ int i2cm_scan(void)
     uint16 trans_count;    //Actual transfer count;
     uint8 status;
     uint8 i;
+    uint8 *buf = 0;
 
     for (i = 0; i < 0x7F; i++)
     {
-        CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_Write(gFtHandle, i, NULL, 0, &trans_count));
+    		FT4222_I2CMaster_Reset (gFtHandle);
+    		printf("FT4222_I2CMaster_Reset");
+		CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_Write(gFtHandle, i, buf, 1, &trans_count));
         CHECK_FUNC_EXIT(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
         if (status == 0)
         {
             printf("I2C Slave found :[0x%x]\n", i * 2);
         }
-        CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_Read(gFtHandle, i, NULL, 0, &trans_count));
+        FT4222_I2CMaster_Reset (gFtHandle);
+        CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_Read(gFtHandle, i, buf, 1, &trans_count));
         CHECK_FUNC_RET(gFtStatus, FT4222_I2CMaster_GetStatus(gFtHandle, &status));
         if (status == 0)
         {
@@ -298,6 +323,8 @@ int i2cm_runOp(st_I2cOps *op)
     }
     }
 
+    i2cm_printOp(op);
+    memset(op,0,sizeof(st_I2cOps));
     return gFtStatus;
 }
 
@@ -382,13 +409,19 @@ int i2cm_praseArgs(st_I2cOps *op, int argc, char *args[])
 int i2cm_init(int32 kbps)
 {
     FT_STATUS ftStatus;
+    uint8 status;
 
     gI2cKbps = kbps;
     // Open a FT4222 device by DESCRIPTION
     CHECK_FUNC_RET(ftStatus, FT_OpenEx("FT4222 A", FT_OPEN_BY_DESCRIPTION, &gFtHandle));
+    printf("FT_OpenEx = [%d]\n",ftStatus);
     CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Init(gFtHandle, kbps));
-
-    return 0;
+    printf("FT4222_I2CMaster_Init = [%d]\n",ftStatus);
+    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_Reset(gFtHandle));
+    printf("FT4222_I2CMaster_Reset = [%d]\n",ftStatus);
+    CHECK_FUNC_RET(ftStatus, FT4222_I2CMaster_GetStatus(gFtHandle,&status));
+    printf("FT4222_I2CMaster_GetStatus = [%d], status[0x%x]\n",ftStatus, status);
+    return ftStatus;
 }
 
 /*!@brief Inital a FT4222H I2C interface by location ID.
