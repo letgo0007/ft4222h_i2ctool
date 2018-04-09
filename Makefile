@@ -5,14 +5,14 @@ CC = gcc
 
 ###C source file
 CSOURCE= \
-main.c\
-i2cm.c
+fti2c.c\
+cli.c
 
 ###C include path
 CINCLUDE = -I.
 
 ###C flags
-CFLAG = -Wall
+CFLAG = -Wall -Wno-int-to-void-pointer-cast
 
 ###Lib search path
 LIBPATH = -Wl,-rpath,/usr/local/lib
@@ -25,7 +25,7 @@ TARGET = fti2c
 
 all:
 	$(CC) $(CSOURCE) $(CINCLUDE) $(CFLAG) $(LIBPATH) $(LIBFLAG) -o$(TARGET)
-	
+
 debug: all
 	chmod +x ./test.sh
 	./test.sh
